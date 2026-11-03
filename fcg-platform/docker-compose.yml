@@ -1,0 +1,128 @@
+# Sobe a stack completa da FCG (Fase 2): RabbitMQ + Mailpit + 4 APIs.
+#
+# PRE-REQUISITO: as imagens fcg/*:latest precisam existir localmente.
+# Este compose NAO builda a partir do codigo-fonte: cada API vive em seu
+# proprio repositorio Git. Builde antes com:
+#
+#   .\build-images.ps1 -ReposRoot <pasta-que-contem-os-4-repos>
+#
+# ou, manualmente, na raiz de cada repo de API:
+#
+#   docker build -f Users.Api/Dockerfile -t fcg/users-api:latest .
+#
+# Depois:  docker compose up -d
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    hostname: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 40s
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8025"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  users-api:
+    image: fcg/users-api:latest
+    pull_policy: never
+    ports:
+      - "5101:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Data Source=/app/data/users.db
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: guest
+      RabbitMq__Password: guest
+      Jwt__Key: ${JWT_KEY:-CHANGE_ME_DEV_KEY_MIN_32_CHARS_LONG!!}
+      Jwt__Issuer: FCG
+      Jwt__Audience: FCG
+    volumes:
+      - users-api-data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  catalog-api:
+    image: fcg/catalog-api:latest
+    pull_policy: never
+    ports:
+      - "5102:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Data Source=/app/data/catalog.db
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: guest
+      RabbitMq__Password: guest
+      Jwt__Key: ${JWT_KEY:-CHANGE_ME_DEV_KEY_MIN_32_CHARS_LONG!!}
+      Jwt__Issuer: FCG
+      Jwt__Audience: FCG
+    volumes:
+      - catalog-api-data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  payments-api:
+    image: fcg/payments-api:latest
+    pull_policy: never
+    ports:
+      - "5103:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Data Source=/app/data/payments.db
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: guest
+      RabbitMq__Password: guest
+      Payments__SimulationMode: Random
+      Payments__ApprovalRate: "0.92"
+      Payments__RejectPrices__0: "99.99"
+    volumes:
+      - payments-api-data:/app/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  notifications-api:
+    image: fcg/notifications-api:latest
+    pull_policy: never
+    ports:
+      - "5104:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: guest
+      RabbitMq__Password: guest
+      Smtp__Enabled: "true"
+      Smtp__Host: mailpit
+      Smtp__Port: "1025"
+      Smtp__FromAddress: noreply@fcg.local
+      Smtp__FromName: FIAP Cloud Games
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+
+volumes:
+  users-api-data:
+  catalog-api-data:
+  payments-api-data:
