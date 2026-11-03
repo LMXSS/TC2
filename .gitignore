@@ -1,0 +1,6 @@
+# Cada servico tem o seu .gitignore; aqui so o que vale para o repositorio inteiro.
+.vs/
+.vscode/
+.idea/
+*.user
+.env
